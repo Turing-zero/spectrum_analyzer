@@ -162,9 +162,9 @@ uint16_t strength;
 uint8_t row = 0;
 uint8_t b = 0;
 const uint8_t ff[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-int flag = 1;
+int mode = 1;
 float LOW_PRO = 2.20;
-int a=1;
+int open=1;
 
 void setup() {
   //1.44" TFT:
@@ -250,83 +250,79 @@ void loop() {
   float voltage = sensorValue * (5.0/1023.0);
 
   if(voltage>=LOW_PRO){
-    if(a==1){
-    if(voltage<=LOW_PRO+0.2){
-      digitalWrite(BAT_LOW,HIGH);
-    }
-    else if(voltage>2.30){
-      digitalWrite(BAT_LOW,LOW);
-    }
+    if(open==1){
+      if(voltage<=LOW_PRO+0.2){
+        digitalWrite(BAT_LOW,HIGH);
+      }
+      else if(voltage>2.30){
+        digitalWrite(BAT_LOW,LOW);
+      }
 
-    if(digitalRead(MODE_CHANGE)== 0){
-      flag=-flag;
-      tft.fillScreen(ST77XX_BLACK);
-      if(flag==1){
-        drawFrequencyMarkersAndLabels();
-        int loop = 128;
-        while(loop){
-          strength = 0;
-          uint8_t prevStrengthValue = 110;
-          prevStrength[column] = strength;
-          column++;
-          if (column == CHANNELS + STARTCHANNEL) column = STARTCHANNEL;
-          loop--;
+      if(digitalRead(MODE_CHANGE)== 0){
+        mode=-mode;
+        tft.fillScreen(ST77XX_BLACK);
+        if(mode==1){
+          drawFrequencyMarkersAndLabels();
+          int loop = 128;
+          while(loop){
+            strength = 0;
+            uint8_t prevStrengthValue = 110;
+            prevStrength[column] = strength;
+            column++;
+            if (column == CHANNELS + STARTCHANNEL) column = STARTCHANNEL;
+              loop--;
+            }
           }
+        else{
+          for (int d = 0; d < 13; d++) {
+            tft.setTextSize(1);
+            tft.setTextColor(ST77XX_WHITE);
+            tft.setCursor(0, d * 10);
+            tft.print("Ch");
+            tft.print(d);
+            tft.print(d >= 10 ? " :  " : "  :  ");
+          }
+          displayChannelAndStrength();
         }
-      else{
-        for (int d = 0; d < 13; d++) {
-          tft.setTextSize(1);
-          tft.setTextColor(ST77XX_WHITE);
-          tft.setCursor(0, d * 10);
-          tft.print("Ch");
-          tft.print(d);
-          tft.print(d >= 10 ? " :  " : "  :  ");
+      }
+
+      //波形显示
+      if(mode==1){
+        strength = (signalStrength[column] + 0x0040) >> 7;
+        strength*=4;
+        if (strength > 110) strength = 110;  // 限制最大高度为显示屏的可显示范围
+        uint8_t prevStrengthValue = prevStrength[column];
+        uint8_t row = 14 - (strength / 8);  // 计算信号强度的起始行
+        if (strength % 8) row--;
+
+        if (strength > prevStrengthValue) {
+          // 信号变强，向上加
+          uint8_t yStart = 110 - prevStrengthValue;
+          uint8_t yEnd = 110 - strength + 1;
+          tft.drawLine(column, yStart, column, yEnd, ST77XX_WHITE);  // 绘制上升的信号强度
+        } 
+        else if (strength < prevStrengthValue) {
+          // 信号变弱，向下减
+          uint8_t yStart = 110 - strength;
+          uint8_t yEnd = 110 - prevStrengthValue + 1;
+          tft.drawLine(column, yStart, column, yEnd, ST77XX_BLACK);  // 清除下降的信号强度
         }
-        displayChannelAndStrength();
-      }
-    }
 
-    if(flag==1){
-      strength = (signalStrength[column] + 0x0040) >> 7;
-      strength*=4;
-      if (strength > 110) {
-        strength = 110;  // 限制最大高度为显示屏的可显示范围
+        // 更新 prevStrength 并移动到下一列
+        prevStrength[column] = strength;
+        column++;
+        if (column == CHANNELS + STARTCHANNEL) column = STARTCHANNEL;
       }
 
-      uint8_t prevStrengthValue = prevStrength[column];
-      uint8_t row = 14 - (strength / 8);  // 计算信号强度的起始行
-      if (strength % 8) row--;
-
-      if (strength > prevStrengthValue) {
-        // 信号变强，向上加
-        uint8_t yStart = 110 - prevStrengthValue;
-        uint8_t yEnd = 110 - strength + 1;
-        tft.drawLine(column, yStart, column, yEnd, ST77XX_WHITE);  // 绘制上升的信号强度
-      } else if (strength < prevStrengthValue) {
-        // 信号变弱，向下减
-        uint8_t yStart = 110 - strength;
-        uint8_t yEnd = 110 - prevStrengthValue + 1;
-        tft.drawLine(column, yStart, column, yEnd, ST77XX_BLACK);  // 清除下降的信号强度
-      }
-
-      // 更新 prevStrength 并移动到下一列
-      prevStrength[column] = strength;
-      column++;
-      if (column == CHANNELS + STARTCHANNEL) column = STARTCHANNEL;
-    }
-
-      if(flag==-1){
+      //数值显示
+      if(mode==-1){
         for (uint8_t c = 0; c < 13; c++) {  // 计算每个信道的总信号强度
           uint16_t total = 0;
           if(c==12){
-            for (int i = 0; i < 8; i++) {
-            total += (signalStrength[i + c * 10] + 0x0040) >> 7;
-            }
+            for (int i = 0; i < 8; i++) total += (signalStrength[i + c * 10] + 0x0040) >> 7;
           }
           else{
-          for (int i = 0; i < 10; i++) {
-            total += (signalStrength[i + c * 10] + 0x0040) >> 7;
-            }
+          for (int i = 0; i < 10; i++) total += (signalStrength[i + c * 10] + 0x0040) >> 7;
           }
 
           // 只有当总信号强度的变化大于10时才更新显示
@@ -358,9 +354,9 @@ void loop() {
     }
   }
   else{
-    if(a==1){
+    if(open==1){
       tft.fillScreen(ST77XX_BLACK);
-      a=0;
+      open=0;
     }
     digitalWrite(BAT_LOW,HIGH);
     delay(100);
