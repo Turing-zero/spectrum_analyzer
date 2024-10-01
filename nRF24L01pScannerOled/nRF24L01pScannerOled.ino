@@ -1,9 +1,6 @@
-// Rough and ready 2.4 GHz band scanner using nRF24L01+ module with 128x64 graphic OLED display
-//
-// ceptimus.  November 2016.
-// Edited by Benik3 January 2019 - added range select, dynamic displaying and async scanning with timer
-
-#include "SSD1X06.h"
+#include <Adafruit_GFX.h>    // Core graphics library
+#include <Adafruit_ST7735.h> // Hardware-specific library for ST7735
+#include <SPI.h>
 
 /* nRF24L01+ module connections
 
@@ -18,11 +15,8 @@
    8 IRQ ---- not connected
 */
 
-#define rstPin 4  //OLED reset pin
-//I2C is "overclocked" to get faster refresh rates. See define in SSD1X06.h
-
 // the nRF24L01+ can tune to 128 channels with 1 MHz spacing from 2.400 GHz to 2.527 GHz.
-#define CHANNELS 128
+#define CHANNELS 127
 #define STARTCHANNEL 0
 
 // SPI definitions and macros
@@ -31,6 +25,16 @@
 #define MOSI_pin 11
 #define MISO_pin 12
 #define SCK_pin  13
+
+#define TFT_CS         3
+#define TFT_RST       -1 // Or set to -1 and connect to Arduino RESET pin
+#define TFT_DC         2
+#define TFT_SCL        19
+#define TFT_SDA        18 
+
+#define  MODE_CHANGE   4
+#define  BAT_CHE       14
+#define  BAT_LOW       5
 
 #define  CE_on    PORTB |= 0x02
 #define  CE_off   PORTB &= 0xFD
@@ -41,6 +45,8 @@
 #define  MISO_on  (PINB & 0x10)  // input
 #define  SCK_on   PORTB |= 0x20
 #define  SCK_off  PORTB &= 0xDF
+
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_SDA, TFT_SCL, TFT_RST);
 
 // nRF24 Register map
 enum {
@@ -113,6 +119,41 @@ enum TXRX_State {
   RX_EN,
 };
 
+const uint8_t gImage[512] = {
+0X00,0X00,0X3F,0XFF,0XFF,0XF8,0X00,0X00,0X00,0X00,0X7F,0XFF,0XFF,0XFE,0X00,0X00,
+0X00,0X00,0XFF,0XFF,0XFF,0XFE,0X00,0X00,0X00,0X00,0XF0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,
+0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,
+0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,
+0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,
+0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XF0,0X00,0X00,0X0F,0X00,0X00,
+0X00,0X00,0XFF,0XFF,0XFF,0XFE,0X00,0X00,0X00,0X00,0X7F,0XFF,0XFF,0XFE,0X00,0X00,
+0X00,0X00,0X3F,0XFF,0XFF,0XF8,0X00,0X00,0X00,0X00,0X00,0X1F,0XF0,0X00,0X00,0X00,
+0X00,0X00,0X00,0X1F,0XF0,0X00,0X00,0X00,0X00,0X00,0X00,0X1F,0XF0,0X00,0X00,0X00,
+0X00,0X00,0X00,0X1F,0XF0,0X00,0X00,0X00,0X00,0X00,0X00,0X1F,0XF0,0X00,0X00,0X00,
+};
+
 uint8_t MHz = STARTCHANNEL;
 uint16_t signalStrength[128];   // smooths signal strength with numerical range 0 - 0x7FFF
 uint8_t prevStrength[128];      // save signal strength displayed on OLED for comparison with actual value
@@ -121,85 +162,77 @@ uint16_t strength;
 uint8_t row = 0;
 uint8_t b = 0;
 const uint8_t ff[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+int flag = 1;
+float LOW_PRO = 2.20;
+int a=1;
 
 void setup() {
-  pinMode(rstPin, OUTPUT);  // Set RST pin as OUTPUT
-  digitalWrite(rstPin, LOW);  // Bring RST low, reset the display
-  delay(10);  // wait 10ms
-  digitalWrite(rstPin, HIGH); // Set RST HIGH, bring out of reset
-  SSD1X06::start();
+  //1.44" TFT:
+  tft.initR(INITR_144GREENTAB); // Init ST7735R chip, green tab
+  tft.fillScreen(ST77XX_BLACK);
   delay(10);
-  SSD1X06::fillDisplay(' ');
-  //SSD1X06::displayString6x8(1, 0, F("2.4GHz band scanner 4"), 0);
-  //SSD1X06::displayString6x8(3, 0, F("By ceptimus. Nov '16"), 0);
-  //SSD1X06::displayString6x8(5, 0, F("Mod by Benik3 Jan '19"), 0);
-  // prepare 'bit banging' SPI interface
+
+  pinMode(BAT_CHE,INPUT);
+  pinMode(MODE_CHANGE, INPUT);
   pinMode(MOSI_pin, OUTPUT);
   pinMode(SCK_pin, OUTPUT);
   pinMode(CS_pin, OUTPUT);
   pinMode(CE_pin, OUTPUT);
   pinMode(MISO_pin, INPUT);
+  pinMode(BAT_LOW,OUTPUT);
   CS_on;
   CE_on;
   MOSI_on;
   SCK_on;
-  delay(70);
+  delay(10);
   CS_off;
   CE_off;
   MOSI_off;
   SCK_off;
-  delay(100);
-  CS_on;
   delay(10);
+  CS_on;
 
   NRF24L01_Reset();
-  delay(150);
+  delay(10);
 
   NRF24L01_WriteReg(NRF24L01_01_EN_AA, 0x00);     // switch off Shockburst mode
   NRF24L01_WriteReg(NRF24L01_06_RF_SETUP, 0x0F);  // write default value to setup register
   NRF24L01_SetTxRxMode(RX_EN);                    // switch to receive mode
 
-  delay(3000); // start up message
+  delay(50); // start up message
 
-  for (int x = 0; x < 128; x++) {
-    uint8_t b = 0x01;  // baseline
-    if (!(x % 10)) {
-      b |= 0x06; // graduation tick every 10 MHz
-    }
-    if (x == 10 || x == 60 || x == 110) {
-      b |= 0xF8; // scale markers at 2.41, 2.46, and 2.51 GHz
-    }
-    SSD1X06::displayByte(6, x, b);
+  int sensorValue = analogRead(BAT_CHE);
+  float voltage = sensorValue * (5.0/1023.0);
+  if(voltage<LOW_PRO) {
+    digitalWrite(BAT_LOW,HIGH);
+    displayImage(gImage);
+    delay(5000);
   }
-  SSD1X06::displayString6x8(7, 0, F("2.41"), 0);
-  SSD1X06::displayString6x8(7, 50, F("2.46"), 0);
-  SSD1X06::displayString6x8(7, 100, F("2.51"), 0);
+  else{
+    drawFrequencyMarkersAndLabels();
 
-  SSD1X06::displayString6x8(1, 0, F("                     "), 0); //clear lines with texts so there can't be any orphans on display
-  SSD1X06::displayString6x8(3, 0, F("                     "), 0);
-  SSD1X06::displayString6x8(5, 0, F("                     "), 0);
+    //setup Timer1 for NRF scanning
+    cli();
+    TCCR1A = 0;
+    TCCR1B = 0;
+    TCNT1  = 0;
+    OCR1A = 45;                           // cca 6kHz
+    TCCR1B |= (1 << WGM12);               // turn on CTC mode
+    TCCR1B |= (1 << CS11) | (1 << CS10);  // Set 64 prescaler
+    TIMSK1 |= (1 << OCIE1A);              // enable timer compare interrupt
 
-  //setup Timer1 for NRF scanning
-  cli();
-  TCCR1A = 0;
-  TCCR1B = 0;
-  TCNT1  = 0;
-  OCR1A = 45;                           // cca 6kHz
-  TCCR1B |= (1 << WGM12);               // turn on CTC mode
-  TCCR1B |= (1 << CS11) | (1 << CS10);  // Set 64 prescaler
-  TIMSK1 |= (1 << OCIE1A);              // enable timer compare interrupt
-
-  NRF24L01_WriteReg(NRF24L01_05_RF_CH, MHz);
-  CE_on;        // start receiving
-  sei();        // allow interrupts
+    NRF24L01_WriteReg(NRF24L01_05_RF_CH, MHz);
+    CE_on;        // start receiving
+    sei();        // allow interrupts
+  }
 }
 
 ISR(TIMER1_COMPA_vect) {                                        //Timer2 intterupt vector, time to get data from nrf
   CE_off;                                                       // stop receiving - one bit is now set if received power was > -64 dBm at that instant
   if (NRF24L01_ReadReg(NRF24L01_09_CD)) {                       // signal detected so increase signalStrength unless already maxed out
-    signalStrength[MHz] += (0x7FFF - signalStrength[MHz]) >> 5; // increase rapidly when previous value was low, with increase reducing exponentially as value approaches maximum
+    signalStrength[MHz] += (0x7FFF - signalStrength[MHz]) >> 6; // increase rapidly when previous value was low, with increase reducing exponentially as value approaches maximum
   } else {                                                      // no signal detected so reduce signalStrength unless already at minimum
-    signalStrength[MHz] -= signalStrength[MHz] >> 5;            // decrease rapidly when previous value was high, with decrease reducing exponentially as value approaches zero
+    signalStrength[MHz] -= signalStrength[MHz] >> 6;            // decrease rapidly when previous value was high, with decrease reducing exponentially as value approaches zero
   }
 
   MHz++;
@@ -212,44 +245,127 @@ ISR(TIMER1_COMPA_vect) {                                        //Timer2 intteru
 }
 
 void loop() {
-  if (CHANNELS + STARTCHANNEL > 128) {  //check if user didn't put wrong values for channel settings
-    SSD1X06::displayString6x8(1, 2, F("Wrong channel config!"), 0);
-  }
-  else {
-    strength = (signalStrength[column] + 0x0040) >> 7;
-    if (strength > 48) {
-      strength = 48; // limit to maximum height that fits display - 6 rows 8 bits
+  uint16_t prevTotal[13] = {0};
+  int sensorValue = analogRead(BAT_CHE);
+  float voltage = sensorValue * (5.0/1023.0);
+
+  if(voltage>=LOW_PRO){
+    if(a==1){
+    if(voltage<=LOW_PRO+0.2){
+      digitalWrite(BAT_LOW,HIGH);
+    }
+    else if(voltage>2.30){
+      digitalWrite(BAT_LOW,LOW);
     }
 
-    uint8_t arr[6] = {0};
+    if(digitalRead(MODE_CHANGE)== 0){
+      flag=-flag;
+      tft.fillScreen(ST77XX_BLACK);
+      if(flag==1){
+        drawFrequencyMarkersAndLabels();
+        int loop = 128;
+        while(loop){
+          strength = 0;
+          uint8_t prevStrengthValue = 110;
+          prevStrength[column] = strength;
+          column++;
+          if (column == CHANNELS + STARTCHANNEL) column = STARTCHANNEL;
+          loop--;
+          }
+        }
+      else{
+        for (int d = 0; d < 13; d++) {
+          tft.setTextSize(1);
+          tft.setTextColor(ST77XX_WHITE);
+          tft.setCursor(0, d * 10);
+          tft.print("Ch");
+          tft.print(d);
+          tft.print(d >= 10 ? " :  " : "  :  ");
+        }
+        displayChannelAndStrength();
+      }
+    }
 
-    if (strength > prevStrength[column]) {
-      uint8_t val = strength - ((prevStrength[column] / 8) * 8); //only the value to change
-      row = 6 - (strength / 8);                                  //starting row, lower rows are 0 and unchanged
-      if (strength % 8) row--;
-      uint8_t nrow = ((val - 1) / 8);                            // Number of aditional rows to change
-
-      memcpy(arr, ff, nrow + 1);                                // set bytes of array to 0xff
-      if (val % 8) {                                            // The first row which may not contain full 8 pixels
-        arr[0] = 0xFF << (8 - (val % 8));
+    if(flag==1){
+      strength = (signalStrength[column] + 0x0040) >> 7;
+      strength*=4;
+      if (strength > 110) {
+        strength = 110;  // 限制最大高度为显示屏的可显示范围
       }
 
-      SSD1X06::drawLine(row, column, nrow, arr);
+      uint8_t prevStrengthValue = prevStrength[column];
+      uint8_t row = 14 - (strength / 8);  // 计算信号强度的起始行
+      if (strength % 8) row--;
+
+      if (strength > prevStrengthValue) {
+        // 信号变强，向上加
+        uint8_t yStart = 110 - prevStrengthValue;
+        uint8_t yEnd = 110 - strength + 1;
+        tft.drawLine(column, yStart, column, yEnd, ST77XX_WHITE);  // 绘制上升的信号强度
+      } else if (strength < prevStrengthValue) {
+        // 信号变弱，向下减
+        uint8_t yStart = 110 - strength;
+        uint8_t yEnd = 110 - prevStrengthValue + 1;
+        tft.drawLine(column, yStart, column, yEnd, ST77XX_BLACK);  // 清除下降的信号强度
+      }
+
+      // 更新 prevStrength 并移动到下一列
       prevStrength[column] = strength;
+      column++;
+      if (column == CHANNELS + STARTCHANNEL) column = STARTCHANNEL;
     }
 
-    else if (strength < prevStrength[column]) {
-      row = 6 - (prevStrength[column] / 8);
-      if (prevStrength[column] % 8) row--;
-      uint8_t nrow = 5 - (strength / 8) - row;
+      if(flag==-1){
+        for (uint8_t c = 0; c < 13; c++) {  // 计算每个信道的总信号强度
+          uint16_t total = 0;
+          if(c==12){
+            for (int i = 0; i < 8; i++) {
+            total += (signalStrength[i + c * 10] + 0x0040) >> 7;
+            }
+          }
+          else{
+          for (int i = 0; i < 10; i++) {
+            total += (signalStrength[i + c * 10] + 0x0040) >> 7;
+            }
+          }
 
-      arr[nrow] = 0xFF << (8 - (strength % 8));
-      SSD1X06::drawLine(row, column, nrow, arr);
-      prevStrength[column] = strength;
+          // 只有当总信号强度的变化大于10时才更新显示
+          if (abs(total - prevTotal[c]) > 4) {
+            // 先清除旧数据
+            tft.fillRect(48, c * 10, 18, 10, ST77XX_BLACK);
+
+            // 更新显示
+            tft.setCursor(48, c * 10);
+            tft.print(total);
+
+            // 存储新的总信号强度值
+            prevTotal[c] = total;
+            if (digitalRead(MODE_CHANGE) == 0) break;
+            delay(250);
+            if (digitalRead(MODE_CHANGE) == 0) break;
+            delay(250);
+            if (digitalRead(MODE_CHANGE) == 0) break;
+            delay(250);
+          }
+        }
+      }
     }
-
-    column++;
-    if (column == CHANNELS + STARTCHANNEL) column = STARTCHANNEL;
+    else{
+      digitalWrite(BAT_LOW,HIGH);
+      delay(100);
+      digitalWrite(BAT_LOW,LOW);
+      delay(100);
+    }
+  }
+  else{
+    if(a==1){
+      tft.fillScreen(ST77XX_BLACK);
+      a=0;
+    }
+    digitalWrite(BAT_LOW,HIGH);
+    delay(100);
+    digitalWrite(BAT_LOW,LOW);
+    delay(100);
   }
 }
 
@@ -406,4 +522,76 @@ uint8_t NRF24L01_Reset()
   uint8_t status2 = NRF24L01_ReadReg(0x07);
   NRF24L01_SetTxRxMode(TXRX_OFF);
   return (status1 == status2 && (status1 & 0x0f) == 0x0e);
+}
+
+// 显示图片函数
+void displayImage(const uint8_t *image) {
+  tft.setRotation(-1);
+  int width = 96; // 设置图像宽度
+  int height = 96; // 设置图像高度
+  int idx = 0; // 图像数组索引
+
+  for (int y = 32; y < height; y++) {
+    for (int x = 32; x < width; x++) {
+      // 计算当前像素点在数组中的位置
+      uint8_t byte = image[idx / 8];
+      uint8_t bit = 7 - (idx % 8);
+
+      // 根据位图数据设置像素颜色
+      if (byte & (1 << bit)) {
+        tft.drawPixel(x, y, ST77XX_WHITE); // 绘制白色像素
+      } else {
+        tft.drawPixel(x, y, ST77XX_BLACK); // 绘制黑色像素
+      }
+      idx++;
+    }
+  }
+}
+
+void displayChannelAndStrength() {
+  for (uint8_t c = 0; c < 13; c++) {
+    uint16_t totalStrength = 0;
+    uint8_t maxIndex = (c == 12) ? 8 : 10;  // 判断是最后一个信道
+    for (uint8_t i = 0; i < maxIndex; i++) {
+      totalStrength += (signalStrength[i + c * 10] + 0x0040) >> 7;
+    }
+    tft.setCursor(48, c * 10);
+    tft.print(totalStrength);  // 显示信号强度值
+  }
+}
+
+void drawFrequencyMarkersAndLabels() {
+  // 绘制频率刻度线
+  for (int x = 0; x < 128; x++) {
+    uint8_t b = 0x01;  // baseline
+    if (!(x % 10)) {
+      b |= 0x0F;  // 每10MHz刻度
+    }
+    if (x == 10 || x == 60 || x == 110) {
+      b |= 0xF8;  // 在2.41, 2.46, 和 2.51 GHz处的刻度标记
+    }
+
+    // 在屏幕上绘制垂直的刻度线
+    for (int i = 0; i < 9; i++) {
+      if (b & (1 << i)) {
+        tft.drawPixel(x, 111 + i, ST77XX_WHITE);
+      }
+    }
+  }
+
+  // 显示频率标记
+  tft.setCursor(0, 121);
+  tft.print(F("2.41"));
+
+  tft.setCursor(50, 121);
+  tft.print(F("2.46"));
+
+  tft.setCursor(100, 121);
+  tft.print(F("2.51"));
+
+  // 清空其他的文本行
+  for (int y = 1; y <= 5; y += 2) {
+    tft.setCursor(0, y * 8);
+    tft.print(F("                     "));
+  }
 }
