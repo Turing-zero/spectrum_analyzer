@@ -274,14 +274,47 @@ void loop() {
             }
           }
         else{
-          for (int d = 0; d < 13; d++) {
             tft.setTextSize(1);
             tft.setTextColor(ST77XX_WHITE);
-            tft.setCursor(0, d * 10);
-            tft.print("Ch");
-            tft.print(d);
-            tft.print(d >= 10 ? " :  " : "  :  ");
-          }
+            tft.setCursor(0,0);
+            tft.print("2.400-2.409GHz");
+            tft.print(": ");
+            tft.setCursor(0,10);
+            tft.print("2.410-2.419GHz");
+            tft.print(": ");
+            tft.setCursor(0,20);
+            tft.print("2.420-2.429GHz");
+            tft.print(": ");
+            tft.setCursor(0,30);
+            tft.print("2.430-2.439GHz");
+            tft.print(": ");
+            tft.setCursor(0,40);
+            tft.print("2.440-2.449GHz");
+            tft.print(": ");
+            tft.setCursor(0,50);
+            tft.print("2.450-2.459GHz");
+            tft.print(": ");
+            tft.setCursor(0,60);
+            tft.print("2.460-2.469GHz");
+            tft.print(": ");
+            tft.setCursor(0,70);
+            tft.print("2.470-2.479GHz");
+            tft.print(": ");
+            tft.setCursor(0,80);
+            tft.print("2.480-2.489GHz");
+            tft.print(": ");
+            tft.setCursor(0,90);
+            tft.print("2.490-2.499GHz");
+            tft.print(": ");
+            tft.setCursor(0,100);
+            tft.print("2.500-2.509GHz");
+            tft.print(": ");
+            tft.setCursor(0,110);
+            tft.print("2.510-2.519GHz");
+            tft.print(": ");
+            tft.setCursor(0,120);
+            tft.print("2.520-2.527GHz");
+            tft.print(": ");
           displayChannelAndStrength();
         }
       }
@@ -325,23 +358,33 @@ void loop() {
           for (int i = 0; i < 10; i++) total += (signalStrength[i + c * 10] + 0x0040) >> 7;
           }
 
-          // 只有当总信号强度的变化大于10时才更新显示
-          if (abs(total - prevTotal[c]) > 4) {
+          // 只有当总信号强度的变化大于8时才更新显示
+          if (abs(total - prevTotal[c]) > 8) {
             // 先清除旧数据
-            tft.fillRect(48, c * 10, 18, 10, ST77XX_BLACK);
+            tft.fillRect(96, c * 10, 18, 10, ST77XX_BLACK);
 
             // 更新显示
-            tft.setCursor(48, c * 10);
+            tft.setCursor(96, c * 10);
             tft.print(total);
 
             // 存储新的总信号强度值
             prevTotal[c] = total;
             if (digitalRead(MODE_CHANGE) == 0) break;
-            delay(250);
+            delay(100);
             if (digitalRead(MODE_CHANGE) == 0) break;
-            delay(250);
+            delay(100);
             if (digitalRead(MODE_CHANGE) == 0) break;
-            delay(250);
+            delay(100);
+            if (digitalRead(MODE_CHANGE) == 0) break;
+            delay(100);
+            if (digitalRead(MODE_CHANGE) == 0) break;
+            delay(100);
+            if (digitalRead(MODE_CHANGE) == 0) break;
+            delay(100);
+            if (digitalRead(MODE_CHANGE) == 0) break;
+            delay(100);
+            if (digitalRead(MODE_CHANGE) == 0) break;
+            delay(100);
           }
         }
       }
@@ -551,7 +594,7 @@ void displayChannelAndStrength() {
     for (uint8_t i = 0; i < maxIndex; i++) {
       totalStrength += (signalStrength[i + c * 10] + 0x0040) >> 7;
     }
-    tft.setCursor(48, c * 10);
+    tft.setCursor(96, c * 10);
     tft.print(totalStrength);  // 显示信号强度值
   }
 }
