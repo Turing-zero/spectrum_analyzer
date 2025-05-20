@@ -1,54 +1,55 @@
-#include <Adafruit_GFX.h>    // Core graphics library
-#include <Adafruit_ST7735.h> // Hardware-specific library for ST7735
+#include <Adafruit_GFX.h>    // 核心图形库
+#include <Adafruit_ST7735.h> // ST7735硬件库
 #include <SPI.h>
 
-/* nRF24L01+ module connections
-
-   module   Arduino
-   1 GND ---- GND
-   2 VCC ---- 3.3V  Note: 5V on VCC will destroy module (but other pins are 5V tolerant)
-   3 CE ----- D9
-   4 CSN ---- D10
-   5 SCK ---- D13 (SCK)
-   6 MOSI --- D11 (MOSI)
-   7 MISO --- D12 (MISO)
-   8 IRQ ---- not connected
+/*
+  nRF24L01+模块连接说明：
+    模块引脚  Arduino引脚
+    1 GND ---- GND
+    2 VCC ---- 3.3V
+    3 CE ----- D9
+    4 CSN ---- D10
+    5 SCK ---- D13 (SCK)
+    6 MOSI --- D11 (MOSI)
+    7 MISO --- D12 (MISO)
+    8 IRQ ---- 未连接
 */
 
-// the nRF24L01+ can tune to 128 channels with 1 MHz spacing from 2.400 GHz to 2.527 GHz.
-#define CHANNELS 127
-#define STARTCHANNEL 0
+// nRF24信道参数
+#define CHANNELS 128       // 总信道数
+#define STARTCHANNEL 0     // 起始信道
 
-// SPI definitions and macros
+// SPI相关引脚定义
 #define CE_pin    9
 #define CS_pin   10
 #define MOSI_pin 11
 #define MISO_pin 12
 #define SCK_pin  13
 
+// TFT显示屏引脚定义
 #define TFT_CS         3
-#define TFT_RST       -1 // Or set to -1 and connect to Arduino RESET pin
+#define TFT_RST       -1  // 连接到Arduino复位或不连接
 #define TFT_DC         2
 #define TFT_SCL        19
 #define TFT_SDA        18 
 
-#define  MODE_CHANGE   4
-#define  BAT_CHE       14
-#define  BAT_LOW       5
+#define MODE_CHANGE    4  // 模式切换按键
 
-#define  CE_on    PORTB |= 0x02
-#define  CE_off   PORTB &= 0xFD
-#define  CS_on    PORTB |= 0x04
-#define  CS_off   PORTB &= 0xFB
-#define  MOSI_on  PORTB |= 0x08
-#define  MOSI_off PORTB &= 0xF7
-#define  MISO_on  (PINB & 0x10)  // input
-#define  SCK_on   PORTB |= 0x20
-#define  SCK_off  PORTB &= 0xDF
+// 通过端口操作控制引脚（比digitalWrite快）
+#define CE_on    PORTB |= 0x02
+#define CE_off   PORTB &= 0xFD
+#define CS_on    PORTB |= 0x04
+#define CS_off   PORTB &= 0xFB
+#define MOSI_on  PORTB |= 0x08
+#define MOSI_off PORTB &= 0xF7
+#define MISO_on  (PINB & 0x10)  // 输入读取
+#define SCK_on   PORTB |= 0x20
+#define SCK_off  PORTB &= 0xDF
 
+// 初始化显示屏对象，使用软件SPI
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_SDA, TFT_SCL, TFT_RST);
 
-// nRF24 Register map
+// nRF24寄存器地址定义
 enum {
   NRF24L01_00_CONFIG      = 0x00,
   NRF24L01_01_EN_AA       = 0x01,
@@ -76,7 +77,7 @@ enum {
   NRF24L01_17_FIFO_STATUS = 0x17,
   NRF24L01_1C_DYNPD       = 0x1C,
   NRF24L01_1D_FEATURE     = 0x1D,
-  //Instructions
+  // 指令
   NRF24L01_61_RX_PAYLOAD  = 0x61,
   NRF24L01_A0_TX_PAYLOAD  = 0xA0,
   NRF24L01_E1_FLUSH_TX    = 0xE1,
@@ -94,7 +95,7 @@ enum {
   NRF24L01_A8_W_ACK_PAYLOAD5 = 0xAD,
 };
 
-// Bit mnemonics
+// nRF24寄存器位掩码定义
 enum {
   NRF24L01_00_MASK_RX_DR  = 6,
   NRF24L01_00_MASK_TX_DS  = 5,
@@ -113,301 +114,177 @@ enum {
   NRF2401_1D_EN_DPL       = 2,
 };
 
+// 发送/接收模式枚举
 enum TXRX_State {
   TXRX_OFF,
   TX_EN,
   RX_EN,
 };
 
-const uint8_t gImage[512] = {
-0X00,0X00,0X3F,0XFF,0XFF,0XF8,0X00,0X00,0X00,0X00,0X7F,0XFF,0XFF,0XFE,0X00,0X00,
-0X00,0X00,0XFF,0XFF,0XFF,0XFE,0X00,0X00,0X00,0X00,0XF0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,
-0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,
-0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,
-0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,
-0X00,0X00,0XE3,0XFF,0XFF,0X8F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XE0,0X00,0X00,0X0F,0X00,0X00,0X00,0X00,0XF0,0X00,0X00,0X0F,0X00,0X00,
-0X00,0X00,0XFF,0XFF,0XFF,0XFE,0X00,0X00,0X00,0X00,0X7F,0XFF,0XFF,0XFE,0X00,0X00,
-0X00,0X00,0X3F,0XFF,0XFF,0XF8,0X00,0X00,0X00,0X00,0X00,0X1F,0XF0,0X00,0X00,0X00,
-0X00,0X00,0X00,0X1F,0XF0,0X00,0X00,0X00,0X00,0X00,0X00,0X1F,0XF0,0X00,0X00,0X00,
-0X00,0X00,0X00,0X1F,0XF0,0X00,0X00,0X00,0X00,0X00,0X00,0X1F,0XF0,0X00,0X00,0X00,
-};
-
-uint8_t MHz = STARTCHANNEL;
-uint16_t signalStrength[128];   // smooths signal strength with numerical range 0 - 0x7FFF
-uint8_t prevStrength[128];      // save signal strength displayed on OLED for comparison with actual value
-uint8_t column = STARTCHANNEL;
+// 全局变量定义
+uint8_t MHz = STARTCHANNEL;                  // 当前信道索引
+uint16_t signalStrength[129];                // 信号强度平滑值，范围0-0x7FFF
+uint8_t prevStrength[129];                   // 上一次绘制的信号强度，用于对比
+uint8_t column = STARTCHANNEL;                // 当前绘制列
 uint16_t strength;
 uint8_t row = 0;
 uint8_t b = 0;
-const uint8_t ff[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-int mode = 1;
-float LOW_PRO = 2.20;
-int open=1;
+const uint8_t ff[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff}; // 用于广播地址
+int flag = 1;                                 // 模式标志
+uint16_t extotal[16]={0};                      // 通道强度缓存，用于避免重复绘制
 
-void setup() {
-  //1.44" TFT:
-  tft.initR(INITR_144GREENTAB); // Init ST7735R chip, green tab
+// Timer1 比较匹配中断服务程序，用于周期性扫描频率并更新信号强度
+ISR(TIMER1_COMPA_vect) {
+  CE_off;  // 停止接收，准备更换信道
+
+  // 读取当前信道信号检测寄存器(CD)
+  if (NRF24L01_ReadReg(NRF24L01_09_CD)) {
+    // 有信号，指数平滑增加信号强度值
+    signalStrength[MHz] += (0x7FFF - signalStrength[MHz]) >> 6;
+  } else {
+    // 无信号，指数平滑递减信号强度值
+    signalStrength[MHz] -= signalStrength[MHz] >> 6;
+  }
+
+  // 切换到下一个信道
+  MHz++;
+  if (MHz == CHANNELS + STARTCHANNEL) MHz = STARTCHANNEL;
+
+  // 设置nRF24工作在新信道
+  NRF24L01_WriteReg(NRF24L01_05_RF_CH, MHz);
+  CE_on;   // 开始接收新信道数据
+
+  // 重置计数器，OCR1A计数值稍作随机，避免周期完全固定
+  TCNT1  = 0;
+  OCR1A = random(35, 55);
+}
+
+// 初始化函数，完成显示屏及模块配置，定时器启动等
+void setup(){
+  // 初始化显示屏，黑色背景，旋转方向设置
+  tft.initR(INITR_18BLACKTAB);
   tft.fillScreen(ST77XX_BLACK);
-  delay(10);
+  tft.setRotation(2);
 
-  pinMode(BAT_CHE,INPUT);
+  // 设置引脚模式
   pinMode(MODE_CHANGE, INPUT);
   pinMode(MOSI_pin, OUTPUT);
   pinMode(SCK_pin, OUTPUT);
   pinMode(CS_pin, OUTPUT);
   pinMode(CE_pin, OUTPUT);
   pinMode(MISO_pin, INPUT);
-  pinMode(BAT_LOW,OUTPUT);
-  CS_on;
-  CE_on;
-  MOSI_on;
-  SCK_on;
-  delay(10);
-  CS_off;
-  CE_off;
-  MOSI_off;
-  SCK_off;
-  delay(10);
-  CS_on;
+  pinMode(5,OUTPUT);
+  digitalWrite(5,HIGH);
 
+  // 初始化nRF24模块
   NRF24L01_Reset();
   delay(10);
 
-  NRF24L01_WriteReg(NRF24L01_01_EN_AA, 0x00);     // switch off Shockburst mode
-  NRF24L01_WriteReg(NRF24L01_06_RF_SETUP, 0x0F);  // write default value to setup register
-  NRF24L01_SetTxRxMode(RX_EN);                    // switch to receive mode
+  // 关闭Shockburst模式，默认射频设置
+  NRF24L01_WriteReg(NRF24L01_01_EN_AA, 0x00);
+  NRF24L01_WriteReg(NRF24L01_06_RF_SETUP, 0x0F);
+  NRF24L01_SetTxRxMode(RX_EN);
 
-  delay(50); // start up message
+  delay(10);
 
-  int sensorValue = analogRead(BAT_CHE);
-  float voltage = sensorValue * (5.0/1023.0);
-  if(voltage<LOW_PRO) {
-    digitalWrite(BAT_LOW,HIGH);
-    displayImage(gImage);
-    delay(5000);
-  }
-  else{
-    drawFrequencyMarkersAndLabels();
+  // 绘制频率刻度和标签
+  drawFrequencyMarkersAndLabels();
 
-    //setup Timer1 for NRF scanning
-    cli();
-    TCCR1A = 0;
-    TCCR1B = 0;
-    TCNT1  = 0;
-    OCR1A = 45;                           // cca 6kHz
-    TCCR1B |= (1 << WGM12);               // turn on CTC mode
-    TCCR1B |= (1 << CS11) | (1 << CS10);  // Set 64 prescaler
-    TIMSK1 |= (1 << OCIE1A);              // enable timer compare interrupt
+  // 配置Timer1用于定时扫描信道
+  cli(); // 禁用中断
+  TCCR1A = 0;
+  TCCR1B = 0;
+  TCNT1  = 0;
+  OCR1A = 45;               // 大约6kHz中断频率
+  TCCR1B |= (1 << WGM12);   // CTC模式
+  TCCR1B |= (1 << CS11) | (1 << CS10);  // 64分频
+  TIMSK1 |= (1 << OCIE1A);  // 允许比较匹配中断
+  sei(); // 使能中断
 
-    NRF24L01_WriteReg(NRF24L01_05_RF_CH, MHz);
-    CE_on;        // start receiving
-    sei();        // allow interrupts
-  }
+  // 设置nRF24初始信道并开启接收
+  NRF24L01_WriteReg(NRF24L01_05_RF_CH, MHz);
+  CE_on;
 }
 
-ISR(TIMER1_COMPA_vect) {                                        //Timer2 intterupt vector, time to get data from nrf
-  CE_off;                                                       // stop receiving - one bit is now set if received power was > -64 dBm at that instant
-  if (NRF24L01_ReadReg(NRF24L01_09_CD)) {                       // signal detected so increase signalStrength unless already maxed out
-    signalStrength[MHz] += (0x7FFF - signalStrength[MHz]) >> 6; // increase rapidly when previous value was low, with increase reducing exponentially as value approaches maximum
-  } else {                                                      // no signal detected so reduce signalStrength unless already at minimum
-    signalStrength[MHz] -= signalStrength[MHz] >> 6;            // decrease rapidly when previous value was high, with decrease reducing exponentially as value approaches zero
-  }
-
-  MHz++;
-  if (MHz == CHANNELS + STARTCHANNEL) MHz = STARTCHANNEL;
-
-  NRF24L01_WriteReg(NRF24L01_05_RF_CH, MHz);                    // Set new freqency for scan
-  CE_on;                                                        // start receiving
-  TCNT1  = 0;                                                   // clear timer counter
-  OCR1A = random(35, 55);                                       // make the measuring slightly random in time
-}
-
-void loop() {
-  uint16_t prevTotal[13] = {0};
-  int sensorValue = analogRead(BAT_CHE);
-  float voltage = sensorValue * (5.0/1023.0);
-
-  if(voltage>=LOW_PRO){
-    if(open==1){
-      if(voltage<=LOW_PRO+0.2){
-        digitalWrite(BAT_LOW,HIGH);
-      }
-      else if(voltage>2.30){
-        digitalWrite(BAT_LOW,LOW);
-      }
-
-      if(digitalRead(MODE_CHANGE)== 0){
-        mode=-mode;
-        tft.fillScreen(ST77XX_BLACK);
-        if(mode==1){
-          drawFrequencyMarkersAndLabels();
-          int loop = 128;
-          while(loop){
-            strength = 0;
-            uint8_t prevStrengthValue = 110;
-            prevStrength[column] = strength;
-            column++;
-            if (column == CHANNELS + STARTCHANNEL) column = STARTCHANNEL;
-              loop--;
-            }
-          }
-        else{
-            tft.setTextSize(1);
-            tft.setTextColor(ST77XX_WHITE);
-            tft.setCursor(0,0);
-            tft.print("2.400-2.409GHz");
-            tft.print(": ");
-            tft.setCursor(0,10);
-            tft.print("2.410-2.419GHz");
-            tft.print(": ");
-            tft.setCursor(0,20);
-            tft.print("2.420-2.429GHz");
-            tft.print(": ");
-            tft.setCursor(0,30);
-            tft.print("2.430-2.439GHz");
-            tft.print(": ");
-            tft.setCursor(0,40);
-            tft.print("2.440-2.449GHz");
-            tft.print(": ");
-            tft.setCursor(0,50);
-            tft.print("2.450-2.459GHz");
-            tft.print(": ");
-            tft.setCursor(0,60);
-            tft.print("2.460-2.469GHz");
-            tft.print(": ");
-            tft.setCursor(0,70);
-            tft.print("2.470-2.479GHz");
-            tft.print(": ");
-            tft.setCursor(0,80);
-            tft.print("2.480-2.489GHz");
-            tft.print(": ");
-            tft.setCursor(0,90);
-            tft.print("2.490-2.499GHz");
-            tft.print(": ");
-            tft.setCursor(0,100);
-            tft.print("2.500-2.509GHz");
-            tft.print(": ");
-            tft.setCursor(0,110);
-            tft.print("2.510-2.519GHz");
-            tft.print(": ");
-            tft.setCursor(0,120);
-            tft.print("2.520-2.527GHz");
-            tft.print(": ");
-          displayChannelAndStrength();
-        }
-      }
-
-      //波形显示
-      if(mode==1){
-        strength = (signalStrength[column] + 0x0040) >> 7;
-        strength*=4;
-        if (strength > 110) strength = 110;  // 限制最大高度为显示屏的可显示范围
-        uint8_t prevStrengthValue = prevStrength[column];
-        uint8_t row = 14 - (strength / 8);  // 计算信号强度的起始行
-        if (strength % 8) row--;
-
-        if (strength > prevStrengthValue) {
-          // 信号变强，向上加
-          uint8_t yStart = 110 - prevStrengthValue;
-          uint8_t yEnd = 110 - strength + 1;
-          tft.drawLine(column, yStart, column, yEnd, ST77XX_WHITE);  // 绘制上升的信号强度
-        } 
-        else if (strength < prevStrengthValue) {
-          // 信号变弱，向下减
-          uint8_t yStart = 110 - strength;
-          uint8_t yEnd = 110 - prevStrengthValue + 1;
-          tft.drawLine(column, yStart, column, yEnd, ST77XX_BLACK);  // 清除下降的信号强度
-        }
-
-        // 更新 prevStrength 并移动到下一列
+// 主循环函数，根据模式标志选择不同显示逻辑
+void loop(){
+  if(digitalRead(MODE_CHANGE) == 0) {
+    flag = -flag;              // 模式切换
+    tft.fillScreen(ST77XX_BLACK);
+    if(flag == 1){
+      drawFrequencyMarkersAndLabels();
+      int loop = 129;
+      // 清除上一屏数据
+      while(loop){
+        strength = 0;
         prevStrength[column] = strength;
         column++;
         if (column == CHANNELS + STARTCHANNEL) column = STARTCHANNEL;
-      }
-
-      //数值显示
-      if(mode==-1){
-        for (uint8_t c = 0; c < 13; c++) {  // 计算每个信道的总信号强度
-          uint16_t total = 0;
-          if(c==12){
-            for (int i = 0; i < 8; i++) total += (signalStrength[i + c * 10] + 0x0040) >> 7;
-          }
-          else{
-          for (int i = 0; i < 10; i++) total += (signalStrength[i + c * 10] + 0x0040) >> 7;
-          }
-
-          // 只有当总信号强度的变化大于8时才更新显示
-          if (abs(total - prevTotal[c]) > 8) {
-            // 先清除旧数据
-            tft.fillRect(96, c * 10, 18, 10, ST77XX_BLACK);
-
-            // 更新显示
-            tft.setCursor(96, c * 10);
-            tft.print(total);
-
-            // 存储新的总信号强度值
-            prevTotal[c] = total;
-            if (digitalRead(MODE_CHANGE) == 0) break;
-            delay(100);
-            if (digitalRead(MODE_CHANGE) == 0) break;
-            delay(100);
-            if (digitalRead(MODE_CHANGE) == 0) break;
-            delay(100);
-            if (digitalRead(MODE_CHANGE) == 0) break;
-            delay(100);
-            if (digitalRead(MODE_CHANGE) == 0) break;
-            delay(100);
-            if (digitalRead(MODE_CHANGE) == 0) break;
-            delay(100);
-            if (digitalRead(MODE_CHANGE) == 0) break;
-            delay(100);
-            if (digitalRead(MODE_CHANGE) == 0) break;
-            delay(100);
-          }
-        }
+        loop--;
       }
     }
     else{
-      digitalWrite(BAT_LOW,HIGH);
-      delay(100);
-      digitalWrite(BAT_LOW,LOW);
-      delay(100);
+      // 显示通道标签
+      for (int d = 0; d < 16; d++) {
+        tft.setTextSize(1);
+        tft.setTextColor(ST77XX_WHITE);
+        tft.setCursor(0, d * 10);
+        tft.print("CH");
+        tft.print(d);
+        tft.print(d >= 10 ? " :  " : "  :  ");
+      }
     }
   }
-  else{
-    if(open==1){
-      tft.fillScreen(ST77XX_BLACK);
-      open=0;
+
+  if(flag == 1){
+    // 计算当前信号强度，右移并限制最大值
+    strength = (signalStrength[column] + 0x0040) >> 7;
+    if (strength >= 140) strength = 140;
+
+    uint8_t prevStrengthValue = prevStrength[column];
+    uint8_t row = 14 - (strength / 8);  // 信号强度起始行
+    if (strength % 8) row--;
+
+    if (strength > prevStrengthValue) {
+      // 信号增强，绘制白线
+      uint8_t yStart = 139 - prevStrengthValue;
+      uint8_t yEnd = 139 - strength + 1;
+      tft.drawLine(column, yStart, column, yEnd, ST77XX_WHITE);
+    } else if (strength < prevStrengthValue) {
+      // 信号减弱，绘制黑线清除
+      uint8_t yStart = 139 - strength;
+      uint8_t yEnd = 139 - prevStrengthValue + 1;
+      tft.drawLine(column, yStart, column, yEnd, ST77XX_BLACK);
     }
-    digitalWrite(BAT_LOW,HIGH);
-    delay(100);
-    digitalWrite(BAT_LOW,LOW);
-    delay(100);
+
+    // 更新缓存并移动绘制列
+    prevStrength[column] = strength;
+    column++;
+    if (column == CHANNELS + STARTCHANNEL) column = STARTCHANNEL;
+  }
+
+  if(flag == -1){
+    // 固定显示指定通道强度
+    updateChannelStrength(95,0);
+    updateChannelStrength(73,1);
+    updateChannelStrength(75,2);
+    updateChannelStrength(77,3);
+    updateChannelStrength(79,4);
+    updateChannelStrength(81,5);
+    updateChannelStrength(85,6);
+    updateChannelStrength(89,7);
+    updateChannelStrength(101,8);
+    updateChannelStrength(103,9);
+    updateChannelStrength(93,10);
+    updateChannelStrength(105,11);
+    updateChannelStrength(109,12);
+    updateChannelStrength(113,13);
+    updateChannelStrength(117,14);
+    updateChannelStrength(121,15);
   }
 }
 
+// 软件SPI写入一个字节函数，使用位操作控制引脚
 uint8_t _spi_write(uint8_t command)
 {
   uint8_t result = 0;
@@ -422,7 +299,7 @@ uint8_t _spi_write(uint8_t command)
     if (MISO_on)
       result |= 0x01;
     SCK_on;
-    _NOP();
+    _NOP();  // 小延时，确保时钟稳定
     SCK_off;
     command = command << 1;
     result = result << 1;
@@ -431,6 +308,7 @@ uint8_t _spi_write(uint8_t command)
   return result;
 }
 
+// 软件SPI写寄存器函数，写地址和数据
 void _spi_write_address(uint8_t address, uint8_t data)
 {
   CS_off;
@@ -440,6 +318,7 @@ void _spi_write_address(uint8_t address, uint8_t data)
   CS_on;
 }
 
+// 软件SPI读一个字节函数
 uint8_t _spi_read()
 {
   uint8_t result = 0;
@@ -447,7 +326,7 @@ uint8_t _spi_read()
   MOSI_off;
   _NOP();
   for (i = 0; i < 8; i++) {
-    if (MISO_on) // if MISO is HIGH
+    if (MISO_on) // MISO高
       result = (result << 1) | 0x01;
     else
       result = result << 1;
@@ -459,6 +338,7 @@ uint8_t _spi_read()
   return result;
 }
 
+// 软件SPI读寄存器函数，读指定地址
 uint8_t _spi_read_address(uint8_t address)
 {
   uint8_t result;
@@ -466,10 +346,10 @@ uint8_t _spi_read_address(uint8_t address)
   _spi_write(address);
   result = _spi_read();
   CS_on;
-  return (result);
+  return result;
 }
 
-/* Instruction Mnemonics */
+// nRF24寄存器读写相关指令定义
 #define R_REGISTER    0x00
 #define W_REGISTER    0x20
 #define REGISTER_MASK 0x1F
@@ -483,6 +363,7 @@ uint8_t _spi_read_address(uint8_t address)
 #define REUSE_TX_PL   0xE3
 #define NOP           0xFF
 
+// 写寄存器
 uint8_t NRF24L01_WriteReg(uint8_t address, uint8_t data)
 {
   CS_off;
@@ -491,16 +372,19 @@ uint8_t NRF24L01_WriteReg(uint8_t address, uint8_t data)
   return 1;
 }
 
+// 清空发送缓冲区
 uint8_t NRF24L01_FlushTx()
 {
   return Strobe(FLUSH_TX);
 }
 
+// 清空接收缓冲区
 uint8_t NRF24L01_FlushRx()
 {
   return Strobe(FLUSH_RX);
 }
 
+// 发送一个命令字节
 static uint8_t Strobe(uint8_t state)
 {
   uint8_t result;
@@ -510,6 +394,7 @@ static uint8_t Strobe(uint8_t state)
   return result;
 }
 
+// 读取寄存器数据
 uint8_t NRF24L01_ReadReg(uint8_t reg)
 {
   CS_off;
@@ -518,119 +403,116 @@ uint8_t NRF24L01_ReadReg(uint8_t reg)
   return data;
 }
 
+// 设置nRF24工作模式：发射、接收或关闭
 void NRF24L01_SetTxRxMode(uint8_t mode)
 {
   if (mode == TX_EN) {
     CE_off;
+    // 清除状态寄存器中断标志
     NRF24L01_WriteReg(NRF24L01_07_STATUS,
-                      (1 << NRF24L01_07_RX_DR)    // reset the flag(s)
-                      | (1 << NRF24L01_07_TX_DS)
-                      | (1 << NRF24L01_07_MAX_RT));
+                      (1 << NRF24L01_07_RX_DR) |
+                      (1 << NRF24L01_07_TX_DS) |
+                      (1 << NRF24L01_07_MAX_RT));
+    // 配置为发射模式
     NRF24L01_WriteReg(NRF24L01_00_CONFIG,
-                      (1 << NRF24L01_00_EN_CRC)   // switch to TX mode
-                      | (1 << NRF24L01_00_CRCO)
-                      | (1 << NRF24L01_00_PWR_UP));
+                      (1 << NRF24L01_00_EN_CRC) |
+                      (1 << NRF24L01_00_CRCO) |
+                      (1 << NRF24L01_00_PWR_UP));
     delayMicroseconds(130);
     CE_on;
   } else if (mode == RX_EN) {
     CE_off;
-    NRF24L01_WriteReg(NRF24L01_07_STATUS, 0x70);        // reset the flag(s)
-    NRF24L01_WriteReg(NRF24L01_00_CONFIG, 0x0F);        // switch to RX mode
+    NRF24L01_WriteReg(NRF24L01_07_STATUS, 0x70);        // 重置状态寄存器
+    NRF24L01_WriteReg(NRF24L01_00_CONFIG, 0x0F);        // 设置为接收模式基本配置
     NRF24L01_WriteReg(NRF24L01_07_STATUS,
-                      (1 << NRF24L01_07_RX_DR)    //reset the flag(s)
-                      | (1 << NRF24L01_07_TX_DS)
-                      | (1 << NRF24L01_07_MAX_RT));
+                      (1 << NRF24L01_07_RX_DR) |
+                      (1 << NRF24L01_07_TX_DS) |
+                      (1 << NRF24L01_07_MAX_RT));
     NRF24L01_WriteReg(NRF24L01_00_CONFIG,
-                      (1 << NRF24L01_00_EN_CRC)   // switch to RX mode
-                      | (1 << NRF24L01_00_CRCO)
-                      | (1 << NRF24L01_00_PWR_UP)
-                      | (1 << NRF24L01_00_PRIM_RX));
+                      (1 << NRF24L01_00_EN_CRC) |
+                      (1 << NRF24L01_00_CRCO) |
+                      (1 << NRF24L01_00_PWR_UP) |
+                      (1 << NRF24L01_00_PRIM_RX));
     delayMicroseconds(130);
     CE_on;
   } else {
-    NRF24L01_WriteReg(NRF24L01_00_CONFIG, (1 << NRF24L01_00_EN_CRC)); // PowerDown
+    // 关闭nRF24模块，仅保留CRC使能
+    NRF24L01_WriteReg(NRF24L01_00_CONFIG, (1 << NRF24L01_00_EN_CRC));
     CE_off;
   }
 }
 
+// 重置nRF24模块
 uint8_t NRF24L01_Reset()
 {
   NRF24L01_FlushTx();
   NRF24L01_FlushRx();
-  uint8_t status1 = Strobe(0xFF); // NOP
+  uint8_t status1 = Strobe(0xFF); // 发送NOP命令，读取状态
   uint8_t status2 = NRF24L01_ReadReg(0x07);
   NRF24L01_SetTxRxMode(TXRX_OFF);
+  // 返回模块是否正常（状态匹配）
   return (status1 == status2 && (status1 & 0x0f) == 0x0e);
 }
 
-// 显示图片函数
-void displayImage(const uint8_t *image) {
-  tft.setRotation(-1);
-  int width = 96; // 设置图像宽度
-  int height = 96; // 设置图像高度
-  int idx = 0; // 图像数组索引
-
-  for (int y = 32; y < height; y++) {
-    for (int x = 32; x < width; x++) {
-      // 计算当前像素点在数组中的位置
-      uint8_t byte = image[idx / 8];
-      uint8_t bit = 7 - (idx % 8);
-
-      // 根据位图数据设置像素颜色
-      if (byte & (1 << bit)) {
-        tft.drawPixel(x, y, ST77XX_WHITE); // 绘制白色像素
-      } else {
-        tft.drawPixel(x, y, ST77XX_BLACK); // 绘制黑色像素
-      }
-      idx++;
-    }
-  }
-}
-
-void displayChannelAndStrength() {
-  for (uint8_t c = 0; c < 13; c++) {
-    uint16_t totalStrength = 0;
-    uint8_t maxIndex = (c == 12) ? 8 : 10;  // 判断是最后一个信道
-    for (uint8_t i = 0; i < maxIndex; i++) {
-      totalStrength += (signalStrength[i + c * 10] + 0x0040) >> 7;
-    }
-    tft.setCursor(96, c * 10);
-    tft.print(totalStrength);  // 显示信号强度值
-  }
-}
-
+// 绘制频率刻度和文字标记
 void drawFrequencyMarkersAndLabels() {
-  // 绘制频率刻度线
   for (int x = 0; x < 128; x++) {
-    uint8_t b = 0x01;  // baseline
+    uint8_t b = 0x01;  // 基线刻度
     if (!(x % 10)) {
-      b |= 0x0F;  // 每10MHz刻度
+      b |= 0x0F;  // 每10MHz长刻度
     }
     if (x == 10 || x == 60 || x == 110) {
-      b |= 0xF8;  // 在2.41, 2.46, 和 2.51 GHz处的刻度标记
+      b |= 0xF8;  // 2.41, 2.46, 2.51 GHz处刻度加粗
     }
 
-    // 在屏幕上绘制垂直的刻度线
+    // 垂直绘制刻度线
     for (int i = 0; i < 9; i++) {
       if (b & (1 << i)) {
-        tft.drawPixel(x, 111 + i, ST77XX_WHITE);
+        tft.drawPixel(x, 140 + i, ST77XX_WHITE);
       }
     }
   }
 
-  // 显示频率标记
-  tft.setCursor(0, 121);
+  // 显示文字频率标签
+  tft.setCursor(1, 150);
   tft.print(F("2.41"));
-
-  tft.setCursor(50, 121);
+  tft.setCursor(50, 150);
   tft.print(F("2.46"));
-
-  tft.setCursor(100, 121);
+  tft.setCursor(100, 150);
   tft.print(F("2.51"));
 
-  // 清空其他的文本行
+  // 清除多余文本行
   for (int y = 1; y <= 5; y += 2) {
     tft.setCursor(0, y * 8);
     tft.print(F("                     "));
   }
+}
+
+// 更新指定通道强度显示，防止重复绘制
+void updateChannelStrength(uint8_t data, uint8_t CH){
+  if (digitalRead(MODE_CHANGE) == LOW) return;
+
+  uint16_t total = 0;
+  // 平滑计算当前通道信号强度，加权主信道和邻近信道
+  for(int i = data-2; i <= data+2 ; i++){
+    if(i == data) total += (signalStrength[i] + 0x0040) >> 7;
+    if(i == data-1 ||i == data+1) total += (signalStrength[i] + 0x0040) >> 8;
+    if(i == data-2 ||i == data+2) total += (signalStrength[i] + 0x0040) >> 9; 
+  }
+
+  if(total == extotal[CH]){
+    // 信号强度绘制
+    tft.setCursor(48, CH * 10);
+    tft.print(total);
+  } else {
+    // 信号强度变化，清除旧区域，重新绘制
+    tft.fillRect(48, CH * 10, 18, 10, ST77XX_BLACK);
+    tft.setCursor(48, CH * 10);
+    tft.print(total);
+  }
+
+  extotal[CH] = total;
+
+  // 模式切换按键被按下时，提前退出避免冲突
+  if (digitalRead(MODE_CHANGE) == LOW) return;
 }
