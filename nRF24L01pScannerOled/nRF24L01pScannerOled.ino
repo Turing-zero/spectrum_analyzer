@@ -34,7 +34,7 @@
 
 #define MODE_CHANGE    4  // 模式切换按键
 
-// 通过端口操作控制引脚（比digitalWrite快）nge
+// 通过端口操作控制引脚（比digitalWrite快）
 #define CE_on    PORTB |= 0x02
 #define CE_off   PORTB &= 0xFD
 #define CS_on    PORTB |= 0x04
