@@ -34,7 +34,7 @@
 
 #define MODE_CHANGE    4  // 模式切换按键
 
-// 通过端口操作控制引脚（比digitalWrite快）
+// 通过端口操作控制引脚（比digitalWrite快）nge
 #define CE_on    PORTB |= 0x02
 #define CE_off   PORTB &= 0xFD
 #define CS_on    PORTB |= 0x04
@@ -203,7 +203,6 @@ void setup(){
   // 设置nRF24初始信道并开启接收
   NRF24L01_WriteReg(NRF24L01_05_RF_CH, MHz);
   CE_on;
-  Serial.begin(115200);
 }
 
 // 主循环函数，根据模式标志选择不同显示逻辑
