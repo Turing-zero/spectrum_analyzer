@@ -1,6 +1,5 @@
-#include <Adafruit_GFX.h>    // 核心图形库
 #include <Adafruit_ST7735.h> // ST7735硬件库
-#include <SPI.h>
+//TO DO change Adafruit_ST7735.h to PDQ_ST7735.h
 
 /*
   nRF24L01+模块连接说明：
@@ -204,6 +203,7 @@ void setup(){
   // 设置nRF24初始信道并开启接收
   NRF24L01_WriteReg(NRF24L01_05_RF_CH, MHz);
   CE_on;
+  Serial.begin(115200);
 }
 
 // 主循环函数，根据模式标志选择不同显示逻辑
@@ -489,30 +489,44 @@ void drawFrequencyMarkersAndLabels() {
 }
 
 // 更新指定通道强度显示，防止重复绘制
-void updateChannelStrength(uint8_t data, uint8_t CH){
-  if (digitalRead(MODE_CHANGE) == LOW) return;
+void updateChannelStrength(uint8_t data, uint8_t CH) {
+  if (digitalRead(MODE_CHANGE) == LOW)
+  return;
 
-  uint16_t total = 0;
+  float total = 0;
+  float data_c = 0;
+  float data_c1 = 0;
+  float data_c2 = 0;
   // 平滑计算当前通道信号强度，加权主信道和邻近信道
-  for(int i = data-2; i <= data+2 ; i++){
-    if(i == data) total += (signalStrength[i] + 0x0040) >> 7;
-    if(i == data-1 ||i == data+1) total += (signalStrength[i] + 0x0040) >> 8;
-    if(i == data-2 ||i == data+2) total += (signalStrength[i] + 0x0040) >> 9; 
+  for (int i = data - 2; i <= data + 2; i++) {
+    if (i == data) {
+      data_c = ((signalStrength[i]) >> 5) * 0.7;
+      total += data_c;
+    }
+    if (i == data - 1 || i == data + 1) {
+      data_c1 = ((signalStrength[i]) >> 5) * 0.1;
+      total += data_c1;
+    }
+    if (i == data - 2 || i == data + 2) {
+      data_c2 = ((signalStrength[i]) >> 5) * 0.05;
+      total += data_c2;
+    }
   }
 
-  if(total == extotal[CH]){
+  if (total == extotal[CH]) {
     // 信号强度绘制
     tft.setCursor(48, CH * 10);
-    tft.print(total);
-  } else {
+    tft.print((uint16_t)total);
+  } 
+  else {
     // 信号强度变化，清除旧区域，重新绘制
     tft.fillRect(48, CH * 10, 18, 10, ST77XX_BLACK);
     tft.setCursor(48, CH * 10);
-    tft.print(total);
+    tft.print((uint16_t)total);
   }
-
   extotal[CH] = total;
-
+  
   // 模式切换按键被按下时，提前退出避免冲突
-  if (digitalRead(MODE_CHANGE) == LOW) return;
+  if (digitalRead(MODE_CHANGE) == LOW)
+  return;
 }
